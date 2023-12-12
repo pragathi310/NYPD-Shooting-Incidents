@@ -1,0 +1,256 @@
+---
+title: "NYPD Shooting Incident Project"
+author: ''
+date: "12/06/2023"
+output:
+  pdf_document: default
+  html_document: default
+geometry: "margin=0.7in"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Import Library
+
+```{r library_imp, warning = FALSE, message = FALSE}
+  library(tidyverse)
+  library(lubridate)
+  library(scales) 
+```
+
+## Importing NYPD Data
+
+Read csv format of NYPD Shooting Incident Data form [NYPD catalog Data](https://catalog.data.gov/dataset)
+
+
+```{r import_data}
+  
+  url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+  nypd_input = read_csv(url_in)
+  nypd_input
+```
+
+### Summary of NYPD data
+
+```{r nypd_summary}
+  summary(nypd_input)
+```
+
+---
+
+### TIDY
+
+Keeping fields that are needed for my analysis and removing others as first step and using mutate change OCCUR_DATE datatype from character to Date.
+
+I am using below fields for my analysis.
+- INCIDENT_KEY
+- PERP_SEX 
+- VIC_SEX
+- PERP_AGE_GROUP
+- VIC_AGE_GROUP
+- BORO
+- OCCUR_TIME
+- OCCUR_DATE
+- STATISTICAL_MURDER_FLAG
+
+```{r, nypd_input_tidy}
+nypd_input <- nypd_input %>%
+select(-c(LOCATION_DESC,PRECINCT,PERP_RACE,JURISDICTION_CODE,VIC_RACE,
+          X_COORD_CD,Y_COORD_CD,Latitude,Longitude)) %>% 
+mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+
+nypd_input
+```
+
+## summary of nypd data after above step
+
+
+```{r nypd_input_summary_tidy}
+  summary(nypd_input)
+```
+
+
+### ANALYSIS
+
+## Total incidents Borough wise and year 
+
+``` {r, Incidents_by_boro_year}
+
+Incidents_by_boro_year <- nypd_input %>% 
+  mutate(year = lubridate::year(OCCUR_DATE)) %>%
+    group_by(BORO, year) %>%
+    summarize(total_incidents_by_year = n()) %>%
+ungroup()
+Incidents_by_boro_year
+```
+# filtering
+
+```{r}
+filter_by_year <- Incidents_by_boro_year %>% filter(year == '2020')
+filter_by_year
+```
+# slicing 
+
+#Now, calculate Total Incidents by Borough and the year having maximum incidents
+
+``` {r, incidents_boro}
+
+
+Incidents_by_boro <- nypd_input %>%
+group_by(BORO,year = lubridate::year(OCCUR_DATE))  %>%
+summarize(total_incidents = n()) %>%
+mutate(max_year = year[which.max(total_incidents)]) %>%
+summarize(total_incidents = sum(total_incidents),
+year_with_max_incidents = first(max_year)) %>%
+select(BORO, total_incidents, year_with_max_incidents) %>%
+ungroup()
+Incidents_by_boro
+```
+
+# joining
+
+
+Now, I am joining this dataframe 'Incidents_by_boro' with  'Incidents_by_boro_year' to get result borough wise total incidents along with year that has maximum incidents and incident count in that year borough wise
+
+``` {r, final_incidents_rep_boro}
+final_incidents_rep_boro <- Incidents_by_boro %>% 
+  left_join(Incidents_by_boro_year ,by = c("BORO", "year_with_max_incidents"="year"))
+final_incidents_rep_boro
+```
+
+###  VISUALIZATION 
+
+Now, lets start visualization data in different ways.
+First , lets visualize no.of incidents between year 2015 and 2020 by Borough wise
+For that, we already have Incidents_by_boro_year that was derived in previous steps
+
+```{r year_input}
+
+year_input <- 2014
+  Incidents_by_boro_year %>% filter(year > year_input) %>% 
+           ggplot(aes(x=year,y= total_incidents_by_year, color = BORO)) +
+           geom_point() + 
+           ggtitle("NYPD Shooting Data between 2015 and 2020") +
+           xlab("Year") + ylab("No.of.Incidents") +
+           scale_color_discrete(name = "BORO") +
+  scale_y_log10() + 
+  theme(legend.position="bottom", axis.text.x = element_text(angle = 90))
+
+```
+
+### incidents-year-Borough plot 
+
+```{r boro_input}
+### plot no.of incidents borough wise and year 
+
+
+boro_input <- "MANHATTAN"
+  Incidents_by_boro_year %>% filter(BORO == boro_input) %>% 
+           ggplot(aes(x=year,y= total_incidents_by_year)) +
+           geom_point(na.rm=TRUE, color="blue", size=1) + 
+           ggtitle("NYPD Shooting Data for MANHATTAN") +
+           xlab("Year") + ylab("No.of.Incidents") +
+  theme(legend.position="bottom", axis.text.x = element_text(angle = 90)) +
+  scale_x_continuous(breaks = seq(2000, 2025, by = 2),
+                     labels = scales::number_format())
+
+```
+
+
+From above analysis, Observed that no.of shooting incidents have been increased from 2021 though the incidents number drop during 2017- 2018 
+
+### perpetrators ratio based on sex
+
+```{r gend_perp}
+
+x <- c("Male","Female")
+y <- c(nrow(nypd_input %>% 
+    filter(PERP_SEX == 'M')),nrow(nypd_input %>% filter(PERP_SEX == 'F')))
+perc <- paste0(round(100 * y/sum(y), 2), "%")
+colors <- c('blue','pink')
+pie(y,label = perc, main = "perpetrators Ratio sex based", col = colors)
+legend("topright", x, fill = colors)
+```
+
+
+### victims ratio based on sex
+
+```{r gend_vic}
+x <- c("Male","Female")
+y <- c(nrow(nypd_input %>% filter(VIC_SEX == 'M')),nrow(nypd_input %>% 
+filter(VIC_SEX == 'F')))
+perc <- paste0(round(100 * y/sum(y), 2), "%")
+data <- data.frame(category = x, value = y, perc = perc)
+ggplot(data, aes(x = "", y = value, fill = category)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y") +
+  theme_void() +
+  geom_text(aes(label = paste0(perc, "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle("Victims Ratio by Sex")
+```
+
+### Total incidents by Borough wise ranking
+
+```{r boro_ranking}
+Incidents_by_boro_ranked <- Incidents_by_boro %>%
+  arrange(desc(total_incidents)) %>%
+  mutate(BORO = factor(BORO, levels = BORO)) %>%
+  mutate(boro_ranking = row_number())
+
+# Create a color palette
+colors <- c("red", "orange", "lightcoral", "yellow", "green")
+
+# Plotting
+ggplot(Incidents_by_boro_ranked, aes(x = BORO, y = total_incidents, fill = BORO)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = colors) +
+  geom_text(aes(label = total_incidents), vjust = -0.5) +
+  geom_hline(yintercept = max(Incidents_by_boro_ranked$total_incidents), linetype = "dashed", color = "red") +
+  ggtitle("Total Incidents by Borough") +
+  xlab("Borough") +
+  ylab("Total Incidents")
+```
+
+### LINEAR MODEL based on gender to year
+
+A Linear Mode which predicts the no.of incidents by victim gender='M' by year. This model uses the existing data to predict the outcome, which has been compared with the real outcomes.
+
+```{r incident_count_vic_sex}
+
+incident_count_vic_sex <- nypd_input %>% filter(STATISTICAL_MURDER_FLAG == 'TRUE') %>%
+  group_by(BORO,year = lubridate::year(OCCUR_DATE)) %>%
+  summarise(total_incidents = n(),
+            total_incidents_M = sum(VIC_SEX == 'M', na.rm = TRUE),
+            total_incidents_F = sum(VIC_SEX == 'F', na.rm = TRUE)) %>%
+select(BORO, year, total_incidents_M, total_incidents_F) %>%
+ungroup()
+incident_count_vic_sex
+
+```
+## using the data above, below is the prediction for Borough BRONX
+
+```{r mod_data}
+#prediction
+mod_data <- incident_count_vic_sex %>% filter(BORO == "BRONX")
+mod <- lm(year ~ total_incidents_M,data = mod_data)
+pred_data <- mod_data %>% mutate(pred = predict(mod))
+pred_data %>% ggplot() +
+ ggtitle("MANHATTAN") + 
+ geom_point(aes(x = year,y = total_incidents_M),color = "blue") +  
+ geom_point(aes(x = year,y = pred),color = "red")   
+```
+
+## BIAS 
+
+Inaccuracies or missing data can introduce bias. certain incidents may be excluded based on certain criteria. With increasing data volume, differences in reporting rates over the years can lead to biased trends. 
+Sometimes changes in law or policies might lead to variations in how incidents are recorded over time.
+
+
+## Project Conclusion
+
+By analyzing the pie charts, graphs, and models I generated above, I am able to find the rise or fall in the number of incidents based on boroughs and then by states by year. I identified the borough with the highest number of incidents overall and also visualized the ratio of each gender in both victims and perpetrators compared to the other.
+
+
